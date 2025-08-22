@@ -4,7 +4,7 @@ data_config:
   num_workers: 4
   img_size: 1024
   caption_dropout_rate: 0.1
-  img_dir: ./your_lora_dataset
+  img_dir: ./korean_dataset
   random_ratio: false # support multi crop preprocessing
   caption_type: txt
 report_to: null
@@ -26,4 +26,4 @@ checkpoints_total_limit: 10
 tracker_project_name: lora_test
 resume_from_checkpoint: latest
 gradient_accumulation_steps: 1
-rank: 16
+rank: 64

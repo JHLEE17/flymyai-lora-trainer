@@ -59,8 +59,16 @@ class CustomImageDataset(Dataset):
     def __init__(self, img_dir, img_size=512, caption_type='txt',
                  random_ratio=False, caption_dropout_rate=0.1, cached_text_embeddings=None,
                  cached_image_embeddings=None, txt_cache_dir=None, img_cache_dir=None):
-        self.images = [os.path.join(img_dir, i) for i in os.listdir(img_dir) if '.jpg' in i or '.png' in i]
-        self.images.sort()
+        # Get image files with proper filtering
+        image_files = []
+        for filename in os.listdir(img_dir):
+            if filename.lower().endswith(('.jpg', '.jpeg', '.png', '.webp')):
+                full_path = os.path.join(img_dir, filename)
+                if os.path.isfile(full_path):  # Ensure it's actually a file
+                    image_files.append(full_path)
+        
+        self.images = sorted(image_files)
+        print(f"Found {len(self.images)} image files in {img_dir}")
         self.img_size = img_size
         self.caption_type = caption_type
         self.random_ratio = random_ratio
@@ -91,32 +99,45 @@ class CustomImageDataset(Dataset):
                 img = torch.from_numpy((np.array(img) / 127.5) - 1)
                 img = img.permute(2, 0, 1)
             elif self.img_cache_dir is not None:
-                img = torch.load(os.path.join(self.img_cache_dir, self.images[idx].split('/')[-1] + '.pt'))
+                img_filename = os.path.basename(self.images[idx]) + '.pt'
+                img = torch.load(os.path.join(self.img_cache_dir, img_filename))
             else:
-                img = self.cached_image_embeddings[self.images[idx].split('/')[-1]]
-            txt_path = self.images[idx].split('.')[0] + '.' + self.caption_type
+                img_filename = os.path.basename(self.images[idx])
+                img = self.cached_image_embeddings[img_filename]
+            # Create corresponding text file path safely
+            image_path = self.images[idx]
+            txt_path = os.path.splitext(image_path)[0] + '.' + self.caption_type
             if self.cached_text_embeddings is None and self.txt_cache_dir is None:
-                prompt = open(txt_path).read()
-                if throw_one(self.caption_dropout_rate):
+                try:
+                    if not os.path.exists(txt_path):
+                        print(f"Warning: Text file not found: {txt_path}")
+                        # Return empty prompt if text file doesn't exist
+                        return img, " "
+                    prompt = open(txt_path, 'r', encoding='utf-8').read().strip()
+                    if throw_one(self.caption_dropout_rate):
+                        return img, " "
+                    else:
+                        return img, prompt
+                except Exception as e:
+                    print(f"Error reading text file {txt_path}: {e}")
                     return img, " "
-                else:
-                    return img, prompt
             elif self.txt_cache_dir is not None:
                 if throw_one(self.caption_dropout_rate):
-                    txt_path = os.path.join(self.txt_cache_dir, 'empty_embedding.pt')
-                    txt_embs = torch.load(txt_path)
+                    empty_cache_path = os.path.join(self.txt_cache_dir, 'empty_embedding.pt')
+                    txt_embs = torch.load(empty_cache_path)
                     return img, txt_embs['prompt_embeds'], txt_embs['prompt_embeds_mask']
                 else:
-                    txt_path = os.path.join(self.txt_cache_dir, txt_path.split('/')[-1] + '.pt')
-                    txt_embs = torch.load(txt_path)
-
+                    # Get the base filename and create cache path
+                    txt_filename = os.path.basename(txt_path) + '.pt'
+                    cache_path = os.path.join(self.txt_cache_dir, txt_filename)
+                    txt_embs = torch.load(cache_path)
                     return img, txt_embs['prompt_embeds'], txt_embs['prompt_embeds_mask']
             else:
-                txt = txt_path.split('/')[-1]
+                txt_filename = os.path.basename(txt_path)
                 if throw_one(self.caption_dropout_rate):
                     return img, self.cached_text_embeddings['empty_embedding']['prompt_embeds'], self.cached_text_embeddings['empty_embedding']['prompt_embeds_mask']
                 else:
-                    return img, self.cached_text_embeddings[txt]['prompt_embeds'], self.cached_text_embeddings[txt]['prompt_embeds_mask']
+                    return img, self.cached_text_embeddings[txt_filename]['prompt_embeds'], self.cached_text_embeddings[txt_filename]['prompt_embeds_mask']
         except Exception as e:
             print(e)
             return self.__getitem__(random.randint(0, len(self.images) - 1))
